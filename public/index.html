@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Queue Dashboard</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1c1c1a; --card:#fff; --mut:#6b6b66; --line:#e3e3df; --acc:#2563eb; --bad:#dc2626; --ok:#16a34a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --fg:#ececea; --card:#20201f; --mut:#9a9a94; --line:#33332f; --acc:#60a5fa; --bad:#f87171; --ok:#4ade80; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
+  h1 { font-size:20px; margin:0 0 16px; } h2 { font-size:14px; margin:24px 0 8px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .card b { display:block; font-size:24px; } .card span { color:var(--mut); font-size:12px; }
+  .bad b { color:var(--bad); } .ok b { color:var(--ok); }
+  svg { width:100%; height:80px; background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  .wrap { overflow-x:auto; } table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); white-space:nowrap; } th { color:var(--mut); font-weight:500; }
+  td.err { max-width:320px; overflow:hidden; text-overflow:ellipsis; } code { font-size:12px; }
+  button { font:inherit; padding:2px 10px; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>Job Queue Dashboard</h1>
+<div class="cards" id="cards"></div>
+<h2>Throughput (completed jobs/s, last 60 s) &middot; <span id="avg"></span></h2>
+<svg id="spark" viewBox="0 0 600 80" preserveAspectRatio="none"></svg>
+<h2>Dead-letter queue</h2>
+<div class="wrap"><table id="dead"></table></div>
+<h2>Recent jobs</h2>
+<div class="wrap"><table id="recent"></table></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const card = (label, n, cls = '') => `<div class="card ${cls}"><b>${n ?? 0}</b><span>${label}</span></div>`;
+
+function rows(list, withRetry) {
+  if (!list.length) return '<tr><td>none</td></tr>';
+  return '<tr><th>id</th><th>type</th><th>status</th><th>attempts</th><th>last error</th>' + (withRetry ? '<th></th>' : '') + '</tr>' +
+    list.map((j) => `<tr><td><code>${esc(j.id.slice(0, 8))}</code></td><td>${esc(j.type)}</td><td>${esc(j.status)}</td>` +
+      `<td>${j.attempts}/${j.max_attempts}</td><td class="err">${esc(j.last_error)}</td>` +
+      (withRetry ? `<td><button onclick="retry('${j.id}')">Retry</button></td>` : '') + '</tr>').join('');
+}
+
+async function retry(id) { await fetch(`/jobs/${id}/retry`, { method: 'POST' }); refresh(); }
+
+async function refresh() {
+  try {
+    const [s, dead, recent] = await Promise.all([
+      fetch('/stats').then((r) => r.json()),
+      fetch('/jobs?status=dead&limit=20').then((r) => r.json()),
+      fetch('/jobs?limit=20').then((r) => r.json()),
+    ]);
+    $('cards').innerHTML =
+      card('ready', s.queue.ready) + card('delayed / retrying', s.queue.delayed) + card('in flight', s.queue.processing) +
+      card('completed', s.byStatus.completed, 'ok') + card('failures (60 s)', s.failures60s, s.failures60s ? 'bad' : '') +
+      card('dead-lettered', s.byStatus.dead, s.byStatus.dead ? 'bad' : '');
+    const max = Math.max(1, ...s.throughput);
+    const pts = s.throughput.map((v, i) => `${(i / 59) * 600},${75 - (v / max) * 70}`).join(' ');
+    $('spark').innerHTML = `<polyline fill="none" stroke="var(--acc)" stroke-width="2" points="${pts}"/>`;
+    $('avg').textContent = `avg ${s.throughputAvg.toFixed(1)}/s, peak ${max}/s`;
+    $('dead').innerHTML = rows(dead, true);
+    $('recent').innerHTML = rows(recent, false);
+  } catch (e) { console.error(e); }
+}
+refresh(); setInterval(refresh, 2000);
+</script>
+</body>
+</html>

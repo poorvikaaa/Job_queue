@@ -1,0 +1,29 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: jobs, POSTGRES_PASSWORD: jobs, POSTGRES_DB: jobs_test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jobs" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://jobs:jobs@localhost:5432/jobs_test
+      DATABASE_URL: postgres://jobs:jobs@localhost:5432/jobs_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Chaos test (kills workers mid-job)
+        run: |
+          node src/api.js &
+          sleep 3
+          CHAOS_JOBS=1000 npm run chaos

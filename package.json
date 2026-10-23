@@ -1,0 +1,19 @@
+{
+  "name": "distributed-job-queue",
+  "version": "1.0.0",
+  "description": "Distributed job queue with retries, dead-letter queue, visibility timeouts and idempotency (Node.js, Redis, PostgreSQL)",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start:api": "node src/api.js",
+    "start:worker": "node src/worker.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "chaos": "node scripts/chaos.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1"
+  }
+}

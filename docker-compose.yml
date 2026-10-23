@@ -1,0 +1,35 @@
+x-app: &app
+  build: .
+  environment:
+    REDIS_URL: redis://redis:6379
+    DATABASE_URL: postgres://jobs:jobs@postgres:5432/jobs
+  depends_on:
+    redis: { condition: service_healthy }
+    postgres: { condition: service_healthy }
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]   # AOF so queued jobs survive a Redis restart
+    volumes: [redis-data:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 3s, timeout: 3s, retries: 10 }
+
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: jobs, POSTGRES_PASSWORD: jobs, POSTGRES_DB: jobs }
+    volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U jobs"], interval: 3s, timeout: 3s, retries: 10 }
+
+  api:
+    <<: *app
+    ports: ["3000:3000"]
+
+  worker:
+    <<: *app
+    command: ["node", "src/worker.js"]
+    deploy: { replicas: 3 }
+
+volumes:
+  redis-data:
+  pg-data:
